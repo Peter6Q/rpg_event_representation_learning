@@ -25,7 +25,6 @@ class QuantizationLayer(nn.Module):
         self.segments = 48
         self.startIdx = 3
         self.endBias = 10
-        self.USE_MEDIAN_FILTER = False
         self.blurFilterKernel = torch.tensor([[[
                             .04, .04, .04, .04, .04,
                             .04, .04, .04, .04, .04,
@@ -101,7 +100,7 @@ class QuantizationLayer(nn.Module):
             alongX[bi] = torch.clamp(alongX[bi], 0, clampVal[bi])
         alongX = alongX.view(1, -1, S, W)
         alongX = F.conv2d(alongX, blurFilt, padding=blurFiltPad, groups=B)
-        alongX = alongX.squeeze()
+        alongX = alongX.squeeze(0)
         alongDim = torch.arange(W, dtype=torch.float32, device=device)
         alongDim = alongDim.expand(B, -1).unsqueeze(-1)
         meanX = torch.bmm(alongX, alongDim).squeeze(-1) / segmentLen_batch.view(-1,1)
@@ -119,7 +118,7 @@ class QuantizationLayer(nn.Module):
             alongY[bi] = torch.clamp(alongY[bi], 0, clampVal[bi])
         alongY = alongY.view(1, -1, S, H)
         alongY = F.conv2d(alongY, blurFilt, padding=blurFiltPad, groups=B)
-        alongY = alongY.squeeze()
+        alongY = alongY.squeeze(0)
         alongDim = torch.arange(H, dtype=torch.float32, device=device)
         alongDim = alongDim.expand(B, -1).unsqueeze(-1)
         meanY = torch.bmm(alongY, alongDim).squeeze(-1) / segmentLen_batch.view(-1,1)
@@ -228,8 +227,9 @@ class Classifier(nn.Module):
         self.crop_dimension = crop_dimension
         self.num_classes = num_classes
         self.in_channels = 1
+        self.USE_MEDIAN_FILTER = False
 
-        classifierSelect = 'mobilenet_v2'
+        classifierSelect = 'resnet34'
         if classifierSelect == 'resnet34':
             from torchvision.models.resnet import resnet34
             self.classifier = resnet34(pretrained=pretrained)
@@ -291,4 +291,4 @@ class Classifier(nn.Module):
         if self.USE_MEDIAN_FILTER:
             frame_cropped = self.medianFilter(frame_cropped)
         pred = self.classifier.forward(frame_cropped)
-        return pred, frame
+        return pred, frame_cropped

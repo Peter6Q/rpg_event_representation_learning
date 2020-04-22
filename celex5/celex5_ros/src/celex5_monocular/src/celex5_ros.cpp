@@ -57,12 +57,9 @@ void CelexRos::grabEventData(
 
       msg.vectorLength += dataSize;
 
-      cv::Mat mat = cv::Mat::zeros(cv::Size(MAT_COLS, MAT_ROWS), CV_8UC1);
       for (int i = 0; i < dataSize; i++) {
-        mat.at<uchar>(MAT_ROWS - vecEvent[i].row - 1,
-                      MAT_COLS - vecEvent[i].col - 1) = 255;
         event_.x = vecEvent[i].col;
-        event_.y = vecEvent[i].row;
+        event_.y = MAT_ROWS - vecEvent[i].row - 1;
         event_.timestamp = init_time + ros::Duration(double(vecEvent[i].t_off_pixel)*0.000014);
         msg.events.push_back(event_);
       }
@@ -84,10 +81,7 @@ void CelexRos::grabEventData(
     msg.width = MAT_COLS;
     msg.vectorLength = dataSize;
 
-    cv::Mat mat = cv::Mat::zeros(cv::Size(MAT_COLS, MAT_ROWS), CV_8UC1);
     for (int i = 0; i < dataSize; i++) {
-      mat.at<uchar>(MAT_ROWS - vecEvent[i].row - 1,
-                    MAT_COLS - vecEvent[i].col - 1) = 255;
       event_.x = vecEvent[i].col;
       event_.y = vecEvent[i].row;
       event_.polarity = vecEvent[i].polarity;
@@ -108,10 +102,7 @@ void CelexRos::grabEventData(
     msg.width = MAT_COLS;
     msg.vectorLength = dataSize;
 
-    cv::Mat mat = cv::Mat::zeros(cv::Size(MAT_COLS, MAT_ROWS), CV_8UC1);
     for (int i = 0; i < dataSize; i++) {
-      mat.at<uchar>(MAT_ROWS - vecEvent[i].row - 1,
-                    MAT_COLS - vecEvent[i].col - 1) = 255;
       event_.x = vecEvent[i].col;
       event_.y = vecEvent[i].row;
       event_.polarity = vecEvent[i].polarity;
