@@ -9,7 +9,6 @@ import threading
 import torch
 import torchvision
 import tqdm
-from utils.loss import cross_entropy_loss_and_accuracy
 
 # Define constants
 DEBUG = 8
@@ -20,7 +19,7 @@ else:
     from utils.models import Classifier
 from utils.dataset import NCaltech101
 from utils.loader import Loader
-from utils.train_eval import train_one_epoch, eval_one_epoch
+from utils.loss import cross_entropy_loss_and_accuracy
 
 # Define global vairables
 running = True
@@ -145,15 +144,18 @@ if __name__ == '__main__':
     test_loader = Loader(test_dataset, flags, flags.device)
 
     # model, load and put to device
-    model = Classifier(device=flags.device, dimension=dim)
+    if DEBUG > 0:
+        model = Classifier(device=flags.device, dimension=dim)
+        model.setMode(1)
+    else:
+        model = Classifier()
     ckpt = torch.load(flags.checkpoint, map_location=flags.device)
     model.load_state_dict(ckpt["state_dict"])
     model = model.to(flags.device)
 
     model = model.eval()
-    model.setMode(1)
 
-    anim = FuncAnimation(fig, updateImg, frames=2000, interval=10)
+    anim = FuncAnimation(fig, updateImg, frames=2000, interval=1)
     events_prediction = get_events_and_predict(model, flags.device, test_loader)
     
     plt.show()
