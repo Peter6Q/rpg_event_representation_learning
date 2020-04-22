@@ -124,6 +124,7 @@ if __name__ == '__main__':
 	ckpt = torch.load(flags.checkpoint)
 	model.load_state_dict(ckpt["state_dict"])
 	model = model.eval()
+	model.setMode(1)
 
 	anim = FuncAnimation(fig, updateImg, frames=2000, interval=100)
 	signal.signal(signal.SIGINT, sigint_handler)

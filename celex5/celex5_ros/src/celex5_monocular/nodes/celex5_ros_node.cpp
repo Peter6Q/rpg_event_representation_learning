@@ -69,7 +69,7 @@ public:
 // }
 
 bool CelexRosNode::grabAndSendData() {
-  celexRos_.grabEventData(celex_, event_vector_, 0.10);
+  celexRos_.grabEventData(celex_, event_vector_, 0.02);
   if(event_vector_.vectorIndex != 0) {
     for (int i=0 ; i<event_vector_.vectorLength ; i++) {
       event_data_.x.push_back(event_vector_.events[i].x);
@@ -110,7 +110,7 @@ void CelexRosNode::setCeleX5(CeleX5 *pcelex) {
 }
 
 bool CelexRosNode::spin() {
-  ros::Rate loop_rate(20);
+  ros::Rate loop_rate(100);
 
   while (node_.ok()) {
     grabAndSendData();
@@ -145,7 +145,7 @@ bool CelexRosNode::genBin() {
   int cnt = 0;
   celex_->startRecording(bin_path);
   while (node_.ok() && cnt<600) {
-    celexRos_.grabEventData(celex_, event_vector_, 0.10);
+    celexRos_.grabEventData(celex_, event_vector_, 0.02);
     event_vector_.events.clear();
     cnt ++;
     ros::spinOnce();
