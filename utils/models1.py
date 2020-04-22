@@ -2,6 +2,7 @@ import math
 import numpy as np
 from os.path import join, dirname, isfile
 import random
+import sys
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -15,6 +16,77 @@ if DEBUG>0:
     import matplotlib.pyplot as plt
     import sys
     import time
+
+class ValueLayer(nn.Module):
+    def __init__(self, mlp_layers, activation=nn.ReLU(), num_channels=9):
+        assert mlp_layers[-1] == 1, "Last layer of the mlp must have 1 input channel."
+        assert mlp_layers[0] == 1, "First layer of the mlp must have 1 output channel"
+
+        nn.Module.__init__(self)
+        self.mlp = nn.ModuleList()
+        self.activation = activation
+
+        # create mlp
+        in_channels = 1
+        for out_channels in mlp_layers[1:]:
+            self.mlp.append(nn.Linear(in_channels, out_channels))
+            in_channels = out_channels
+
+        # init with trilinear kernel
+        path = join(dirname(__file__), "quantization_layer_init", "trilinear_init.pth")
+        if isfile(path):
+            state_dict = torch.load(path)
+            self.load_state_dict(state_dict)
+        else:
+            self.init_kernel(num_channels)
+
+    def forward(self, x):
+        # create sample of batchsize 1 and input channels 1
+        x = x[None,...,None]
+
+        # apply mlp convolution
+        for i in range(len(self.mlp[:-1])):
+            x = self.activation(self.mlp[i](x))
+
+        x = self.mlp[-1](x)
+        x = x.squeeze()
+
+        return x
+
+    def init_kernel(self, num_channels):
+        ts = torch.zeros((1, 2000))
+        optim = torch.optim.Adam(self.parameters(), lr=1e-2)
+
+        torch.manual_seed(1)
+
+        for _ in tqdm.tqdm(range(1000)):  # converges in a reasonable time
+            optim.zero_grad()
+
+            ts.uniform_(-1, 1)
+
+            # gt
+            gt_values = self.trilinear_kernel(ts, num_channels)
+
+            # pred
+            values = self.forward(ts)
+
+            # optimize
+            loss = (values - gt_values).pow(2).sum()
+
+            loss.backward()
+            optim.step()
+
+
+    def trilinear_kernel(self, ts, num_channels):
+        gt_values = torch.zeros_like(ts)
+
+        gt_values[ts > 0] = (1 - (num_channels-1) * ts)[ts > 0]
+        gt_values[ts < 0] = ((num_channels-1) * ts + 1)[ts < 0]
+
+        gt_values[ts < -1.0 / (num_channels-1)] = 0
+        gt_values[ts > 1.0 / (num_channels-1)] = 0
+
+        return gt_values
 
 class QuantizationLayer(nn.Module):
     def __init__(self, dim, device):
@@ -51,6 +123,10 @@ class QuantizationLayer(nn.Module):
         self.blurFilterKernelSize = int( math.sqrt( len(self.blurFilterKernel[0,0])))
         self.dilationKernelSize = int( math.sqrt( len(self.dilationKernel[0,0])))
 
+        self.value_layer = ValueLayer([1, 30, 30, 1],
+                                      activation=nn.LeakyReLU(negative_slope=0.1),
+                                      num_channels=self.segments-self.endBias)
+    
     def setMode(self, mode):
         self.mode = mode
 
@@ -150,41 +226,30 @@ class QuantizationLayer(nn.Module):
             idx_in_container = x + W*y
             idx_in_container = idx_in_container.long()
             idx_in_container = torch.chunk(idx_in_container, S)
-            idx_in_verifier = (x//2) + (W//2)*(y//2)
-            idx_in_verifier = idx_in_verifier.long()
-            idx_in_verifier = torch.chunk(idx_in_verifier, S)
+
+            # C = 3
+            # num_voxels = int(2 * C * W * H)
+            # vox = torch.zeros(num_voxels, dtype=torch.float32, device=device)
+            # p = (p+1)/2  # maps polarity to 0, 1
+            # idx_before_bins = x \
+            #               + W * y \
+            #               + 0 \
+            #               + W * H * C * p \
+            # idx_before_bins = idx_before_bins.long()
+            # idx_before_bins = torch.chunk(idx_before_bins, S)
+            t = t[:usableEventsLen]
+            t /= t.max()
+            t = torch.chunk(t, S)
             
-            ones = torch.ones(segmentLen, dtype=torch.int32, device=device)
-            # onesBool = torch.ones(segmentLen, dtype=torch.bool, device=device)
-            container = torch.zeros(W*H, dtype=torch.int32, device=device)
-            container.put_(idx_in_container[sIdx], ones, accumulate=True)
-            # verifier_old = torch.zeros( (W//2)*(H//2), dtype=torch.bool, device=device)
-            # verifier_old.put_(idx_in_verifier[sIdx], onesBool, accumulate=False)
-            for si in range(sIdx+1, eIdx):
+            ones = torch.ones(segmentLen, dtype=torch.float32, device=device)
+            container = torch.zeros(W*H, dtype=torch.float32, device=device)
+            for si in range(sIdx, eIdx):
                 isXoutlier = outlier1d(meanX[bi, si:si+10], thresh=2)[0]
                 isYoutlier = outlier1d(meanY[bi, si:si+10], thresh=2)[0]
                 if isXoutlier or isYoutlier:
                     continue
-                # verifier_new = verifier_old.detach().clone()
-                # verifier_new.put_(idx_in_verifier[si], onesBool, accumulate=False)
-                # verifier_new_cnt = verifier_new.sum().float()
-                # new_info_cnt = torch.logical_xor(verifier_new, verifier_old).sum().float()
-                # if new_info_cnt/verifier_new_cnt < 0.1:
-                #     break
-                container.put_(idx_in_container[si], ones, accumulate=True)
-                # verifier_old = verifier_new
-            container = container.float()
-            mean = container.mean()
-            std = container.std()
-            clampVal = mean + 2*std
-            container = torch.clamp(container, 0, clampVal)
-            container /= clampVal
-            if self.mode==0 and random.random()>0.5:
-                noise_density = random.random()/2
-                noise_level = 2 + random.random()*3
-                noises = torch.randn_like(container)
-                noises = torch.clamp(noises, noise_density, noise_level)/noise_level
-                container += noises
+                values = t[si] * self.value_layer.forward(t[si]-si/(eIdx-1))
+                container.put_(idx_in_container[si], values, accumulate=True)
             container_batch.append(container)
         
         containers = torch.stack(container_batch).view(-1, 1, H, W)
