@@ -19,7 +19,7 @@ public:
 
   // parameters
   std::string celex_mode_;
-  int threshold_, clock_rate_, actionMode_;
+  int threshold_, clock_rate_, actionMode_, frame_time_;
   std::string bin_path;
 
   CelexRos celexRos_;
@@ -35,6 +35,7 @@ public:
     node_.param<std::string>("celex_mode", celex_mode_,
                              "Event_Off_Pixel_Timestamp_Mode");
 
+    node_.param<int>("frame_time", frame_time_, 10000);   // 0-1024
     node_.param<int>("threshold", threshold_, 171);   // 0-1024
     node_.param<int>("clock_rate", clock_rate_, 100); // 0-100
     node_.param<int>("actionMode", actionMode_, 0); // 0-2
@@ -50,6 +51,7 @@ public:
 
   bool grabAndSendData();
   void setCeleX5(CeleX5 *pcelex);
+  void terminateCeleX5(CeleX5 *pcelex);
   bool spin();
   bool readFromBin();
   bool genBin();
@@ -93,9 +95,12 @@ bool CelexRosNode::grabAndSendData() {
 void CelexRosNode::setCeleX5(CeleX5 *pcelex) {
   celex_ = pcelex;
 
+  celex_->reset();
+
   celex_->setThreshold(threshold_);
+  celex_->setEventFrameTime(frame_time_);
   celexRos_.set_frame_interval(celex_->getEventFrameTime()); 
-  ROS_INFO("NODE celex_monocular frame time: %f ms", celexRos_.get_frame_interval());
+  ROS_INFO("NODE celex_monocular frame time: %f s", celexRos_.get_frame_interval());
 
   CeleX5::CeleX5Mode mode;
   if (celex_mode_ == "Event_Off_Pixel_Timestamp_Mode")
@@ -107,6 +112,18 @@ void CelexRosNode::setCeleX5(CeleX5 *pcelex) {
 
   celex_->setSensorFixedMode(mode);
   ROS_INFO("NODE celex_monocular sensor mode: %d",  celex_->getSensorFixedMode());
+
+  celex_->disableFrameModule();
+  ROS_INFO("NODE celex_monocular frame module: %d",  celex_->isFrameModuleEnabled());
+
+  celex_->disableIMUModule();
+  ROS_INFO("NODE celex_monocular IMU module: %d",  celex_->isIMUModuleEnabled());
+}
+
+void CelexRosNode::terminateCeleX5(CeleX5 *pcelex) {
+  celex_ = pcelex;
+  celex_->stopSensor();
+  ROS_INFO("NODE celex_monocular sensor stopped");
 }
 
 bool CelexRosNode::spin() {
@@ -164,7 +181,11 @@ int main(int argc, char **argv) {
   pCelex_ = new CeleX5;
   if (NULL == pCelex_)
     return 0;
-  pCelex_->openSensor(CeleX5::CeleX5_MIPI);
+  do {
+    pCelex_->openSensor(CeleX5::CeleX5_MIPI);
+    ROS_INFO("NODE celex_monocular open sensor");
+  } while (!pCelex_->isSensorReady());
+  ROS_INFO("NODE celex_monocular sensor opened");
 
   celex_ros::CelexRosNode cr;
   cr.setCeleX5(pCelex_);
@@ -179,5 +200,6 @@ int main(int argc, char **argv) {
       cr.genBin();
       break;
   }
+  cr.terminateCeleX5(pCelex_);
   return EXIT_SUCCESS;
 }

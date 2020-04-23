@@ -2,6 +2,7 @@
 
   <node name="celex_monocular" pkg="celex5_monocular" type="celex5_monocular_node" output="screen" >
     <param name="celex_mode" value="Event_Off_Pixel_Timestamp_Mode" />
+    <param name="frame_time" value="10000" /> <!-- microsec -->
     <param name="threshold" value="300" /> <!-- 50-511 -->
     <param name="clock_rate" value="70" />
     <param name="bin_output_path" value="$(find celex5_monocular)/output/eventRecord.bin" />
