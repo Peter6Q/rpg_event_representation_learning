@@ -79,10 +79,12 @@ def threaded(fn):
 
 def updateImg(i):
     ax.clear()
-    ax.set_title( datasetClasses[ pred_label[0].item()])
     img_lock.acquire()
-    img = ax.imshow(img_frame, cmap='gray')
-    img_lock.release()
+	img_label = pred_label[0].item()
+	img_to_show = img_frame.copy()
+	img_lock.release()
+	ax.set_title( datasetClasses[img_label])
+    img = ax.imshow(img_to_show, cmap='gray')
     return [img]
 
 @threaded
