@@ -24,18 +24,17 @@ double CelexRos::get_frame_interval() {
 
 void CelexRos::grabEventData(
     CeleX5 *celex,
-    celex5_msgs::eventVector &msg,
-    double max_time_diff) {
+    celex5_msgs::eventData &msg,
+    double max_time_diff,
+    uint32_t *vectorIndex) {
   if (celex->getSensorFixedMode() == CeleX5::Event_Off_Pixel_Timestamp_Mode) {
     std::clock_t timeBegin;
     double timeDiff = 0.0;
     timeBegin = std::clock();
 
-    msg.vectorIndex = 0;
-    msg.height = MAT_ROWS;
-    msg.width = MAT_COLS;
-    msg.vectorLength = 0;
-    
+    *vectorIndex = 0;
+    uint32_t vectorLength = 0;
+
     while (timeDiff < max_time_diff) {
       std::vector<EventData> vecEvent;
       celex->getEventDataVector(vecEvent);
@@ -55,66 +54,21 @@ void CelexRos::grabEventData(
       previous_x = first_x;
       previous_y = first_y;
 
-      msg.vectorLength += dataSize;
+      vectorLength += dataSize;
 
       for (int i = 0; i < dataSize; i++) {
-        event_.x = vecEvent[i].col;
-        event_.y = MAT_ROWS - vecEvent[i].row - 1;
-        event_.timestamp = init_time + ros::Duration(double(vecEvent[i].t_off_pixel)*0.000014);
-        msg.events.push_back(event_);
+        msg.x.push_back(vecEvent[i].col);
+        msg.y.push_back(MAT_ROWS - vecEvent[i].row - 1);
+        // msg.timestamp = init_time + ros::Duration(double(vecEvent[i].t_off_pixel)*0.000014).toSec();
+        msg.timestamp.push_back(0); 
       }
       init_time += frame_interval;
     }
-    if (msg.vectorLength == 0)
+    if (vectorLength == 0)
       return;
     frame_cnt += 1;
-    msg.vectorIndex = frame_cnt;
-  } else if(celex->getSensorFixedMode() == CeleX5::Event_In_Pixel_Timestamp_Mode) {
-    std::vector<EventData> vecEvent;
-
-    celex->getEventDataVector(vecEvent);
-    frame_cnt += 1;
-
-    int dataSize = vecEvent.size();
-    msg.vectorIndex = frame_cnt;
-    msg.height = MAT_ROWS;
-    msg.width = MAT_COLS;
-    msg.vectorLength = dataSize;
-
-    for (int i = 0; i < dataSize; i++) {
-      event_.x = vecEvent[i].col;
-      event_.y = vecEvent[i].row;
-      event_.polarity = vecEvent[i].polarity;
-      event_.timestamp = init_time + ros::Duration(double(vecEvent[i].t_off_pixel)*0.000014);
-      event_.brightness = 255;
-      msg.events.push_back(event_);
-    }
-    init_time += frame_interval;
-  } else if(celex->getSensorFixedMode() == CeleX5::Event_Intensity_Mode) {
-    std::vector<EventData> vecEvent;
-
-    celex->getEventDataVector(vecEvent);
-    frame_cnt += 1;
-
-    int dataSize = vecEvent.size();
-    msg.vectorIndex = frame_cnt;
-    msg.height = MAT_ROWS;
-    msg.width = MAT_COLS;
-    msg.vectorLength = dataSize;
-
-    for (int i = 0; i < dataSize; i++) {
-      event_.x = vecEvent[i].col;
-      event_.y = vecEvent[i].row;
-      event_.polarity = vecEvent[i].polarity;
-      event_.timestamp = init_time + ros::Duration(double(vecEvent[i].t_off_pixel)*0.000014);
-      event_.brightness = 255;
-      msg.events.push_back(event_);
-    }
-    init_time += frame_interval;
-    //std::cout.precision(12);
-    // std::cout << "Current time: " << std::fixed << init_time.toSec() << std::endl;
+    *vectorIndex = frame_cnt;
   } else {
-    msg.vectorLength = 0;
     std::cout << "This mode has no event data. " << std::endl;
   }
 }

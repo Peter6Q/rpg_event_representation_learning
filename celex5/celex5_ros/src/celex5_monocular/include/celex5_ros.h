@@ -25,7 +25,7 @@ namespace celex_ros
         void setSensorParams();
         void set_frame_interval(uint32_t i);
         double get_frame_interval();
-        void grabEventData(CeleX5 *celex, celex5_msgs::eventVector& msg, double max_time_diff);
+        void grabEventData(CeleX5 *celex, celex5_msgs::eventData& msg, double max_time_diff, uint32_t *vectorLength);
 
         private:
         celex5_msgs::event event_;

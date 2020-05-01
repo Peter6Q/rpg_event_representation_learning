@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#! /usr/bin/env python3
 import numpy as np
 import pickle 
 import rospkg
@@ -10,82 +10,145 @@ import time
 import threading
 from celex5_msgs.msg import event, eventData, eventVector
 
-# Define constants
-COMM_PORT = 8484
-HEADERSIZE = 10
+import argparse
+from matplotlib.animation import FuncAnimation
+import matplotlib.pyplot as plt
+import os
+from os.path import dirname
+import torch
 
-class CommServer:
-    msg = None
-    msg_lock = threading.Lock()
+DEBUG = 8
 
-    def __init__(self, port, out_loc):
-        self.port = int(port)
-        self.out_loc = out_loc
-        try:
-            self.server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            self.server.bind( ("", self.port))
-        except socket.error as emsg:
-            rospy.logerr("Socket error: ", emsg)
-            sys.exit(1)
-        self.events_sub = rospy.Subscriber("/celex_monocular/celex5_event", numpy_msg(eventData), self.eventVector_cb, queue_size=1)
+from utils.loader import Loader
+from utils.loss import cross_entropy_loss_and_accuracy
+if DEBUG>0:
+    from utils.models1 import Classifier
+else:
+    from utils.models import Classifier
+from utils.dataset import NCaltech101
 
-    def shutdown(self):
-        self.server.shutdown(socket.SHUT_RDWR)
-        self.server.close()
+# Define global vairables
+fig = plt.figure()
+ax = plt.axes(xlim=(0, 224), ylim=(0, 224))
+datasetClasses = None
+pred_label = torch.tensor([0])
+img_frame = np.zeros((224,224))
+img_lock = threading.Lock()
+event_data = None
+msg_lock = threading.Lock()
+PATH = ""
 
-    def listen(self):
-        self.server.listen(1)
-        while True:
-            try:
-                client, address = self.server.accept()
-            except socket.error as emsg:
-                rospy.logerr("Socket error: ", emsg)
-                self.server.close()
-                sys.exit(1)
-            self.clientHandler(client, address)
-    
-    def clientHandler(self, client, address):
-        ip, port = address
-        id = str(ip) + ":" + str(port)
-        rospy.loginfo("New client: %s" % id)
-        while True:
-            # Receive request type
-            request = client.recv(1)
-            if request == b'\x00':
-                # msg = pickle.dumps(self.events)
-                # rospy.loginfo("sent msg: %d" % len(msg))
-                # msg = bytes("{0:<{1}}".format( len(msg), HEADERSIZE).encode('utf-8')) + msg 
-                # client.send(msg)
-                self.msg_lock.acquire()
-                npX = np.fromiter(self.msg.x, dtype=np.float32) 
-                npY = np.fromiter(self.msg.y, dtype=np.float32)
-                npT = np.fromiter(self.msg.timestamp, dtype=np.float32)
-                self.msg_lock.release()
-                npP = np.zeros_like(npT)
-                events = np.stack([npX, npY, npT, npP], axis=-1)
-                rospy.loginfo("Saved: %r" % (events.shape,))
-                np.save(out_loc, events)
-                client.send(b'\x00')
-            else:
-                break
-        rospy.loginfo("Client closed: %s" % id)
+def FLAGS():
+    parser = argparse.ArgumentParser(
+        """Deep Learning for Events. Supply a config file.""")
 
-    def eventVector_cb(self, msg):
-        self.msg_lock.acquire()
-        self.msg = msg
-        self.msg_lock.release()
-        print(len(msg.x))
+    # can be set in config
+    parser.add_argument("--height", type=int, default=800)
+    parser.add_argument("--width", type=int, default=1280)
+
+    parser.add_argument("--checkpoint", default="log/final/model_best.pth")
+    parser.add_argument("--device", default="cuda:0")
+    parser.add_argument("--num_workers", type=int, default=0)
+    parser.add_argument("--pin_memory", type=bool, default=True)
+    parser.add_argument("--test_dataset", default="N-Caltech101/testing/")
+
+    flags = parser.parse_args()
+
+    checkpoint_loc = PATH + "/" + flags.checkpoint
+    dataset_loc = PATH + "/" + flags.test_dataset
+
+    assert os.path.isdir(dirname(checkpoint_loc)), f"Checkpoint {checkpoint_loc} not found."
+
+    print(f"----------------------------\n"
+            f"Starting testing with \n"
+            f"height: {flags.height}\n"
+            f"width: {flags.width}\n"
+            f"checkpoint: {checkpoint_loc}\n"
+            f"device: {flags.device}\n"
+            f"test_dataset: {dataset_loc}\n"
+            f"----------------------------")
+
+    return flags
+
+def threaded(fn):
+    def wrapper(*args, **kwargs):
+        thread = threading.Thread(target=fn, args=args, kwargs=kwargs)
+        thread.start()
+        return thread
+    return wrapper
+
+def updateImg(i):
+    ax.clear()
+    ax.set_title( datasetClasses[ pred_label[0].item()])
+    img_lock.acquire()
+    img = ax.imshow(img_frame, cmap='gray')
+    img_lock.release()
+    return [img]
+
+@threaded
+def get_events_and_predict():
+    global img_frame, pred_label, datasetClasses
+    events = []
+    while not rospy.is_shutdown():
+        if event_data == None:
+            continue
+        msg_lock.acquire()
+        npX = np.fromiter(event_data.x, dtype=np.float32) 
+        npY = np.fromiter(event_data.y, dtype=np.float32)
+        msg_lock.release()
+        npT = np.zeros_like(npY)
+        npP = np.zeros_like(npY)
+        ev = np.stack([npX, npY, npT, npP], axis=-1)
+        ev = np.concatenate([ev, np.zeros((len(ev),1), dtype=np.float32)],1)
+        ev = np.expand_dims(ev, axis=0)
+        events.append(ev)
+        with torch.no_grad():
+            pred, img = model(events)
+        img_lock.acquire()
+        img_frame = img.squeeze().cpu().numpy()
+        pred_label = pred.argmax(1)
+        img_lock.release()
+        print(datasetClasses[ pred_label[0].item()])
+        events.clear()
+
+def eventVector_cb(msg):
+    global event_data
+    msg_lock.acquire()
+    event_data = msg
+    msg_lock.release()
+    print(len(event_data.x))
 
 if __name__ == '__main__':
     rospy.init_node("events2npy")
     rospack = rospkg.RosPack()
-    out_loc = rospack.get_path('celex5_monocular') + "/output/eventRecord"
+    PATH = rospack.get_path('celex5_monocular')
+    rospy.loginfo("NODE: events2npy starts , using Python %s" % sys.version)
 
-    server = CommServer(COMM_PORT, out_loc)
+    events_sub = rospy.Subscriber("/celex_monocular/celex5_event", numpy_msg(eventData), eventVector_cb, queue_size=1)
 
-    rospy.on_shutdown(server.shutdown)
-    rospy.loginfo("NODE: events2npy starts")
-    
+    flags = FLAGS()
+    dataset_loc = PATH + "/" + flags.test_dataset
+    checkpoint_loc = PATH + "/" + flags.checkpoint
+    dim = (flags.height, flags.width)
+
+    # Obtain classes from test dataset
+    test_dataset = NCaltech101(dataset_loc, resolution=dim)
+    datasetClasses = test_dataset.getClasses()
+
+    # model, load and put to device
+    model = Classifier(device=flags.device, dimension=dim)
+    model = model.to(flags.device)
+    ckpt = torch.load(checkpoint_loc)
+    model.load_state_dict(ckpt["state_dict"])
+    model = model.eval()
+    model.setMode(1)
+
+    anim = FuncAnimation(fig, updateImg, frames=2000, interval=100)
+    events_handler = get_events_and_predict()
+
+    plt.show()
+
+    events_handler.join()
+
     while not rospy.is_shutdown():
-        server.listen()
-        
+        pass

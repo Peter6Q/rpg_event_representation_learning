@@ -91,17 +91,17 @@ void CelexRosCallBackNode::setCeleX5(CeleX5 *pcelex) {
 
 void CelexRosCallBackNode::onFrameDataUpdated(
     CeleX5ProcessedData *pSensorData) {
-  celexRos_.grabEventData(celex_, event_vector_, 0.10);
-  data_pub_.publish(event_vector_);
-  event_vector_.events.clear();
+  // celexRos_.grabEventData(celex_, event_vector_, 0.10);
+  // data_pub_.publish(event_vector_);
+  // event_vector_.events.clear();
 
-  // get sensor image and publish it, you can use the RVIZ to subscribe the topic "/imgshow"
-  cv::Mat image =
-      cv::Mat(800, 1280, CV_8UC1,
-              pSensorData->getEventPicBuffer(CeleX5::EventBinaryPic));
-  sensor_msgs::ImagePtr msg =
-      cv_bridge::CvImage(std_msgs::Header(), "mono8", image).toImageMsg();
-  image_pub_.publish(msg);
+  // // get sensor image and publish it, you can use the RVIZ to subscribe the topic "/imgshow"
+  // cv::Mat image =
+  //     cv::Mat(800, 1280, CV_8UC1,
+  //             pSensorData->getEventPicBuffer(CeleX5::EventBinaryPic));
+  // sensor_msgs::ImagePtr msg =
+  //     cv_bridge::CvImage(std_msgs::Header(), "mono8", image).toImageMsg();
+  // image_pub_.publish(msg);
 }
 
 bool CelexRosCallBackNode::spin() {

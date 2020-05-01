@@ -53,8 +53,6 @@ public:
   void setCeleX5(CeleX5 *pcelex);
   void terminateCeleX5(CeleX5 *pcelex);
   bool spin();
-  bool readFromBin();
-  bool genBin();
 };
 
 // void CelexRosNode::celexDataCallback(const celex5_msgs::eventVector &msg) {
@@ -71,19 +69,14 @@ public:
 // }
 
 bool CelexRosNode::grabAndSendData() {
-  celexRos_.grabEventData(celex_, event_vector_, 0.02);
-  if(event_vector_.vectorIndex != 0) {
-    for (int i=0 ; i<event_vector_.vectorLength ; i++) {
-      event_data_.x.push_back(event_vector_.events[i].x);
-      event_data_.y.push_back(event_vector_.events[i].y);
-      event_data_.timestamp.push_back(event_vector_.events[i].timestamp.toSec());
-    }
+  uint32_t vectorIndex = 0;
+  celexRos_.grabEventData(celex_, event_data_, 0.02, &vectorIndex);
+  if(vectorIndex != 0) {
     data_pub_.publish(event_data_);
     event_data_.x.clear();
     event_data_.y.clear();
     event_data_.timestamp.clear();
   }
-  event_vector_.events.clear();
 
   // get sensor image and publish it
   // cv::Mat image = celex_->getEventPicMat(CeleX5::EventBinaryPic);
@@ -138,40 +131,6 @@ bool CelexRosNode::spin() {
   return true;
 }
 
-bool CelexRosNode::readFromBin() {
-  ros::Rate loop_rate(300);
-
-  ROS_INFO("bin PATH: %s", bin_path.c_str());
-  bool success = celex_->openBinFile(bin_path);
-  CeleX5::CeleX5Mode mode = (CeleX5::CeleX5Mode)celex_->getBinFileAttributes().loopA_mode;
-  celex_->setSensorFixedMode(mode);
-  
-  while (node_.ok()) {
-    celex_->readBinFileData();
-    grabAndSendData();
-    ros::spinOnce();
-    loop_rate.sleep();
-  }
-
-  return true;
-}
-
-bool CelexRosNode::genBin() {
-  ros::Rate loop_rate(30);
-  ROS_INFO("bin PATH: %s", bin_path.c_str());
-  int cnt = 0;
-  celex_->startRecording(bin_path);
-  while (node_.ok() && cnt<600) {
-    celexRos_.grabEventData(celex_, event_vector_, 0.02);
-    event_vector_.events.clear();
-    cnt ++;
-    ros::spinOnce();
-    loop_rate.sleep();
-  }
-  celex_->stopRecording();
-  return true;
-}
-
 }
 
 int main(int argc, char **argv) {
@@ -192,12 +151,6 @@ int main(int argc, char **argv) {
   switch(cr.actionMode_) {
     case 0:
       cr.spin();
-      break;
-    case 1:
-      cr.readFromBin();
-      break;
-    case 2:
-      cr.genBin();
       break;
   }
   cr.terminateCeleX5(pCelex_);
