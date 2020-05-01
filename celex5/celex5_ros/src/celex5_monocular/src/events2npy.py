@@ -81,7 +81,7 @@ def updateImg(i):
     ax.clear()
     img_lock.acquire()
 	img_label = pred_label[0].item()
-	img_to_show = img_frame.copy()
+	img_to_show = np.copy(img_frame)
 	img_lock.release()
 	ax.set_title( datasetClasses[img_label])
     img = ax.imshow(img_to_show, cmap='gray')
